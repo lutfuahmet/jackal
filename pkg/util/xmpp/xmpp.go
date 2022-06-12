@@ -17,6 +17,8 @@ package xmpputil
 import (
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/jackal-xmpp/stravaganza"
 	stanzaerror "github.com/jackal-xmpp/stravaganza/errors/stanza"
 	"github.com/jackal-xmpp/stravaganza/jid"
@@ -63,4 +65,18 @@ func MakeDelayMessage(stanza stravaganza.Stanza, stamp time.Time, from, text str
 	)
 	dMsg, _ := sb.BuildMessage()
 	return dMsg
+}
+
+// MakeStanzaIDMessage creates a new message adding stanza-id element.
+func MakeStanzaIDMessage(message *stravaganza.Message) *stravaganza.Message {
+	msg, _ := stravaganza.NewBuilderFromElement(message).
+		WithChild(
+			stravaganza.NewBuilder("stanza-id").
+				WithAttribute(stravaganza.Namespace, "urn:xmpp:sid:0").
+				WithAttribute("by", message.ToJID().ToBareJID().String()).
+				WithAttribute("id", uuid.New().String()).
+				Build(),
+		).
+		BuildMessage()
+	return msg
 }

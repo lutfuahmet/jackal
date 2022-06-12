@@ -43,15 +43,10 @@ func TestOffline_ArchiveOfflineMessage(t *testing.T) {
 	hostsMock := &hostsMock{}
 	hostsMock.IsLocalHostFunc = func(h string) bool { return h == "jackal.im" }
 
-	resManagerMock := &resourceManagerMock{}
-	resManagerMock.GetResourcesFunc = func(ctx context.Context, username string) ([]c2smodel.ResourceDesc, error) {
-		return nil, nil
-	}
 	hk := hook.NewHooks()
 	m := &Offline{
 		cfg:    Config{QueueSize: 100},
 		hosts:  hostsMock,
-		resMng: resManagerMock,
 		rep:    repMock,
 		hk:     hk,
 		logger: kitlog.NewNopLogger(),
@@ -70,7 +65,7 @@ func TestOffline_ArchiveOfflineMessage(t *testing.T) {
 	_ = m.Start(context.Background())
 	defer func() { _ = m.Stop(context.Background()) }()
 
-	_, _ = hk.Run(context.Background(), hook.C2SStreamWillRouteElement, &hook.ExecutionContext{
+	_, _ = hk.Run(context.Background(), hook.C2SStreamMessageRouted, &hook.ExecutionContext{
 		Info: &hook.C2SStreamInfo{
 			Element: msg,
 		},
@@ -113,7 +108,6 @@ func TestOffline_ArchiveOfflineMessageQueueFull(t *testing.T) {
 		cfg:    Config{QueueSize: 100},
 		router: routerMock,
 		hosts:  hostsMock,
-		resMng: resManagerMock,
 		rep:    repMock,
 		hk:     hk,
 		logger: kitlog.NewNopLogger(),
@@ -132,7 +126,7 @@ func TestOffline_ArchiveOfflineMessageQueueFull(t *testing.T) {
 	_ = m.Start(context.Background())
 	defer func() { _ = m.Stop(context.Background()) }()
 
-	halted, err := hk.Run(context.Background(), hook.C2SStreamWillRouteElement, &hook.ExecutionContext{
+	halted, err := hk.Run(context.Background(), hook.C2SStreamMessageRouted, &hook.ExecutionContext{
 		Info: &hook.C2SStreamInfo{
 			Element: msg,
 		},
@@ -152,11 +146,6 @@ func TestOffline_DeliverOfflineMessages(t *testing.T) {
 	// given
 	routerMock := &routerMock{}
 
-	output := bytes.NewBuffer(nil)
-	routerMock.RouteFunc = func(ctx context.Context, stanza stravaganza.Stanza) ([]jid.JID, error) {
-		_ = stanza.ToXML(output, true)
-		return nil, nil
-	}
 	hostsMock := &hostsMock{}
 	hostsMock.IsLocalHostFunc = func(h string) bool { return h == "jackal.im" }
 
@@ -184,6 +173,19 @@ func TestOffline_DeliverOfflineMessages(t *testing.T) {
 		return nil
 	}
 
+	stmMock := &c2sStreamMock{}
+	stmMock.UsernameFunc = func() string {
+		return "ortuman"
+	}
+
+	output := bytes.NewBuffer(nil)
+	stmMock.SendElementFunc = func(elem stravaganza.Element) <-chan error {
+		_ = elem.ToXML(output, true)
+		ch := make(chan error)
+		close(ch)
+		return ch
+	}
+
 	hk := hook.NewHooks()
 	m := &Offline{
 		cfg:    Config{QueueSize: 100},
@@ -206,6 +208,7 @@ func TestOffline_DeliverOfflineMessages(t *testing.T) {
 		Info: &hook.C2SStreamInfo{
 			Element: pr,
 		},
+		Sender: stmMock,
 	})
 
 	// then

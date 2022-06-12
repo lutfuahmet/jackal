@@ -601,8 +601,8 @@ func (s *inC2S) processIQ(ctx context.Context, iq *stravaganza.IQ) error {
 	case router.ErrRemoteServerTimeout:
 		return s.sendElement(ctx, stanzaerror.E(stanzaerror.RemoteServerTimeout, iq).Element())
 
-	case nil:
-		_, err := s.runHook(ctx, hook.C2SStreamIQRouted, &hook.C2SStreamInfo{
+	case nil, router.ErrUserNotAvailable:
+		_, err = s.runHook(ctx, hook.C2SStreamIQRouted, &hook.C2SStreamInfo{
 			ID:       s.ID().String(),
 			JID:      s.JID(),
 			Presence: s.Presence(),
@@ -647,7 +647,7 @@ func (s *inC2S) processPresence(ctx context.Context, presence *stravaganza.Prese
 		}
 		targets, err := s.router.Route(ctx, outPr)
 		switch err {
-		case nil:
+		case nil, router.ErrUserNotAvailable:
 			_, err = s.runHook(ctx, hook.C2SStreamPresenceRouted, &hook.C2SStreamInfo{
 				ID:      s.ID().String(),
 				JID:     s.JID(),
@@ -718,18 +718,21 @@ sendMsg:
 	case router.ErrRemoteServerTimeout:
 		return s.sendElement(ctx, stanzaerror.E(stanzaerror.RemoteServerTimeout, message).Element())
 
-	case router.ErrUserNotAvailable:
-		return s.sendElement(ctx, stanzaerror.E(stanzaerror.ServiceUnavailable, message).Element())
-
-	case nil:
-		_, err = s.runHook(ctx, hook.C2SStreamMessageRouted, &hook.C2SStreamInfo{
+	case nil, router.ErrUserNotAvailable:
+		halted, hErr := s.runHook(ctx, hook.C2SStreamMessageRouted, &hook.C2SStreamInfo{
 			ID:       s.ID().String(),
 			JID:      s.JID(),
 			Presence: s.Presence(),
 			Targets:  targets,
 			Element:  msg,
 		})
-		return err
+		if halted {
+			return nil
+		}
+		if errors.Is(err, router.ErrUserNotAvailable) {
+			return s.sendElement(ctx, stanzaerror.E(stanzaerror.ServiceUnavailable, message).Element())
+		}
+		return hErr
 
 	default:
 		return err
@@ -1105,6 +1108,7 @@ func (s *inC2S) close(ctx context.Context, disconnectErr error) error {
 	halted, err := s.runHook(ctx, hook.C2SStreamDisconnected, &hook.C2SStreamInfo{
 		ID:              s.ID().String(),
 		JID:             s.JID(),
+		Presence:        s.Presence(),
 		DisconnectError: disconnectErr,
 	})
 	if halted {
